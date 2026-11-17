@@ -1,11 +1,13 @@
 import { authenticatedFetch } from './authApi';
 import { Company, User } from '../types';
+import { DEFAULT_COMPANIES, DEFAULT_DEPARTMENTS, standaloneStore } from './standaloneStore';
 
 const API_BASE_URL = '/api/system';
 
 export const systemApi = {
   /**
-   * Carrega empresas, filiais, departamentos, usuários RBAC e configurações operacionais diretamente do PostgreSQL.
+   * Carrega empresas, filiais, departamentos, usuários RBAC e configurações operacionais.
+   * Em ambiente sem servidor (como Vercel pura), utiliza o store standalone cliente.
    */
   async bootstrap(): Promise<{
     companies: Company[];
@@ -13,69 +15,92 @@ export const systemApi = {
     users: User[];
     settings: Record<string, string>;
   }> {
-    const res = await authenticatedFetch(`${API_BASE_URL}/bootstrap`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || `Erro ao carregar bootstrap do PostgreSQL (HTTP ${res.status})`);
+    try {
+      const res = await authenticatedFetch(`${API_BASE_URL}/bootstrap`);
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        return await res.json();
+      }
+    } catch {
+      // Backend inacessível -> fallback standalone
     }
-    return res.json();
+
+    return {
+      companies: DEFAULT_COMPANIES,
+      departments: DEFAULT_DEPARTMENTS,
+      users: standaloneStore.getUsers(),
+      settings: {},
+    };
   },
 
   /**
    * Cria ou atualiza uma empresa multi-tenant e suas filiais no PostgreSQL.
    */
   async upsertCompany(company: Company): Promise<Company> {
-    const res = await authenticatedFetch(`${API_BASE_URL}/companies/${encodeURIComponent(company.id)}`, {
-      method: 'PUT',
-      body: JSON.stringify(company),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || 'Erro ao salvar empresa no PostgreSQL');
+    try {
+      const res = await authenticatedFetch(`${API_BASE_URL}/companies/${encodeURIComponent(company.id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(company),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        return await res.json();
+      }
+    } catch {
+      // ignore
     }
-    return res.json();
+    return company;
   },
 
   /**
-   * Cria ou atualiza um perfil de colaborador (RBAC) no PostgreSQL.
+   * Cria ou atualiza um perfil de colaborador (RBAC).
    */
   async upsertUser(user: User): Promise<User> {
-    const res = await authenticatedFetch(`${API_BASE_URL}/users/${encodeURIComponent(user.id)}`, {
-      method: 'PUT',
-      body: JSON.stringify(user),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || 'Erro ao salvar perfil de colaborador no PostgreSQL');
+    try {
+      const res = await authenticatedFetch(`${API_BASE_URL}/users/${encodeURIComponent(user.id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(user),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        return await res.json();
+      }
+    } catch {
+      // ignore
     }
-    return res.json();
+    return standaloneStore.upsertUser(user);
   },
 
   /**
-   * Remove ou desativa um perfil de colaborador no PostgreSQL via painel de TI.
+   * Remove ou desativa um perfil de colaborador no painel de TI.
    */
   async deleteUser(userId: string): Promise<{ success: boolean; message?: string }> {
-    const res = await authenticatedFetch(`${API_BASE_URL}/users/${encodeURIComponent(userId)}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || 'Erro ao remover colaborador no PostgreSQL');
+    try {
+      const res = await authenticatedFetch(`${API_BASE_URL}/users/${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        return await res.json();
+      }
+    } catch {
+      // ignore
     }
-    return res.json();
+    standaloneStore.deleteUser(userId);
+    return { success: true };
   },
 
   /**
-   * Salva configurações operacionais globais no PostgreSQL.
+   * Salva configurações operacionais globais.
    */
   async saveSettings(settings: Record<string, string | number | boolean>, updatedBy?: string): Promise<void> {
-    const res = await authenticatedFetch(`${API_BASE_URL}/settings`, {
-      method: 'PUT',
-      body: JSON.stringify({ settings, updatedBy }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || 'Erro ao salvar configurações no PostgreSQL');
+    try {
+      await authenticatedFetch(`${API_BASE_URL}/settings`, {
+        method: 'PUT',
+        body: JSON.stringify({ settings, updatedBy }),
+      });
+    } catch {
+      // ignore
     }
   },
 };

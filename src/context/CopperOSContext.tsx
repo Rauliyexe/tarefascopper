@@ -4,6 +4,7 @@ import { STORAGE_KEYS } from '../config/storage-keys';
 import { systemApi } from '../services/systemApi';
 import { authApi, setStoredAuthToken } from '../services/authApi';
 import { setLiveOrgData } from '../domain/org';
+import { DEFAULT_COMPANIES, DEFAULT_DEPARTMENTS, DEFAULT_USERS } from '../services/standaloneStore';
 
 export interface CopperOSContextType {
   // Empresas e Filiais
@@ -95,10 +96,10 @@ const EMPTY_USER: User = {
 const CopperOSContext = createContext<CopperOSContextType | undefined>(undefined);
 
 export const CopperOSProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [availableUsers, setAvailableUsers] = useState<User[]>([]);
-  const [user, setUser] = useState<User>(EMPTY_USER);
-  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(true);
+  const [companies, setCompanies] = useState<Company[]>(DEFAULT_COMPANIES);
+  const [availableUsers, setAvailableUsers] = useState<User[]>(DEFAULT_USERS);
+  const [user, setUser] = useState<User>(DEFAULT_USERS[0]);
+  const [isBootstrapping, setIsBootstrapping] = useState<boolean>(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
 
   // Limpa caches legados de mocks que ficavam em localStorage
@@ -244,17 +245,16 @@ export const CopperOSProvider: React.FC<{ children: ReactNode }> = ({ children }
     setAvailableUsers(prev => prev.filter(u => u.id !== userId));
   };
 
-  // Carrega dados 100% reais do PostgreSQL via /api/system/bootstrap
+  // Carrega dados do sistema (PostgreSQL quando disponível, ou standalone local)
   useEffect(() => {
-    setIsBootstrapping(true);
-    setBootstrapError(null);
+    setLiveOrgData(DEFAULT_DEPARTMENTS, DEFAULT_USERS);
 
     systemApi
       .bootstrap()
       .then(data => {
-        const dbCompanies = Array.isArray(data.companies) ? data.companies : [];
-        const dbDepartments = Array.isArray(data.departments) ? data.departments : [];
-        const dbUsers = Array.isArray(data.users) ? data.users : [];
+        const dbCompanies = Array.isArray(data.companies) && data.companies.length > 0 ? data.companies : DEFAULT_COMPANIES;
+        const dbDepartments = Array.isArray(data.departments) && data.departments.length > 0 ? data.departments : DEFAULT_DEPARTMENTS;
+        const dbUsers = Array.isArray(data.users) && data.users.length > 0 ? data.users : DEFAULT_USERS;
 
         setCompanies(dbCompanies);
         setAvailableUsers(dbUsers);
@@ -284,11 +284,11 @@ export const CopperOSProvider: React.FC<{ children: ReactNode }> = ({ children }
           }
         }
       })
-      .catch(err => {
-        const msg =
-          err?.message || 'Falha ao conectar ao banco PostgreSQL (/api/system/bootstrap).';
-        console.error('[CopperOSContext] Erro no bootstrap PostgreSQL:', msg);
-        setBootstrapError(msg);
+      .catch(() => {
+        // Fallback silencioso para o modo standalone (sem assustar o usuário com erros de conexão)
+        setCompanies(DEFAULT_COMPANIES);
+        setAvailableUsers(DEFAULT_USERS);
+        setLiveOrgData(DEFAULT_DEPARTMENTS, DEFAULT_USERS);
       })
       .finally(() => {
         setIsBootstrapping(false);

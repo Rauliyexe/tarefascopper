@@ -223,6 +223,8 @@ export const LoginScreen: React.FC = () => {
 
   const getRoleBadge = (role: string) => {
     switch (role) {
+      case 'ADMIN':
+        return { label: 'Administrador (TI)', icon: ShieldCheck, color: 'text-purple-500' };
       case 'CEO':
         return { label: 'Diretoria / CEO', icon: Briefcase, color: 'text-amber-500' };
       case 'MANAGER':

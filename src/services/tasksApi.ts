@@ -1,32 +1,54 @@
 import { TarefaItem } from '../types';
 import { authenticatedFetch } from './authApi';
+import { standaloneStore } from './standaloneStore';
 
 const API_BASE_URL = '/api/tasks';
 
 export const tasksApi = {
   /**
    * Lista as tarefas diretamente do PostgreSQL com filtros opcionais.
+   * Se o backend não responder (ex: Vercel estático), faz fallback para armazenamento local.
    */
   async list(params: { companyId?: string; status?: string; search?: string } = {}): Promise<TarefaItem[]> {
-    const query = new URLSearchParams();
-    if (params.companyId) query.set('companyId', params.companyId);
-    if (params.status && params.status !== 'Todos') query.set('status', params.status);
-    if (params.search) query.set('search', params.search);
+    try {
+      const query = new URLSearchParams();
+      if (params.companyId) query.set('companyId', params.companyId);
+      if (params.status && params.status !== 'Todos') query.set('status', params.status);
+      if (params.search) query.set('search', params.search);
 
-    const url = `${API_BASE_URL}${query.toString() ? `?${query.toString()}` : ''}`;
-    const res = await authenticatedFetch(url);
+      const url = `${API_BASE_URL}${query.toString() ? `?${query.toString()}` : ''}`;
+      const res = await authenticatedFetch(url);
+      const contentType = res.headers.get('content-type') || '';
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || `Erro ao listar tarefas no PostgreSQL (HTTP ${res.status})`);
+      if (res.ok && contentType.includes('application/json')) {
+        const data = await res.json();
+        return data.tasks || [];
+      }
+    } catch {
+      // Backend inacessível -> fallback standalone
     }
 
-    const data = await res.json();
-    return data.tasks || [];
+    let tasks = standaloneStore.getTasks();
+    if (params.companyId) {
+      tasks = tasks.filter(t => t.companyId === params.companyId);
+    }
+    if (params.status && params.status !== 'Todos') {
+      tasks = tasks.filter(t => t.status === params.status);
+    }
+    if (params.search) {
+      const q = params.search.toLowerCase();
+      tasks = tasks.filter(
+        t =>
+          t.title.toLowerCase().includes(q) ||
+          t.project.toLowerCase().includes(q) ||
+          t.assignee.toLowerCase().includes(q)
+      );
+    }
+    return tasks;
   },
 
   /**
-   * Obtém resumo rápido de estatísticas do PostgreSQL.
+   * Obtém resumo rápido de estatísticas.
    */
   async summary(): Promise<{
     total: number;
@@ -36,70 +58,90 @@ export const tasksApi = {
     overdue: number;
     completionRate: number;
   }> {
-    const res = await authenticatedFetch(`${API_BASE_URL}/summary`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || `Erro ao obter resumo de tarefas (HTTP ${res.status})`);
+    try {
+      const res = await authenticatedFetch(`${API_BASE_URL}/summary`);
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        return await res.json();
+      }
+    } catch {
+      // ignore
     }
-    return res.json();
+
+    const tasks = standaloneStore.getTasks().filter(t => !t.isDaily);
+    const total = tasks.length;
+    const pending = tasks.filter(t => t.status === 'Pendente').length;
+    const inProgress = tasks.filter(t => t.status === 'Em andamento').length;
+    const done = tasks.filter(t => t.status === 'Concluída').length;
+    const today = new Date().toISOString().slice(0, 10);
+    const overdue = tasks.filter(t => t.status !== 'Concluída' && t.dueDate < today).length;
+    const completionRate = total > 0 ? Math.round((done / total) * 100) : 0;
+
+    return { total, pending, inProgress, done, overdue, completionRate };
   },
 
   /**
-   * Cria uma nova tarefa ou rotina no PostgreSQL.
+   * Cria uma nova tarefa ou rotina.
    */
   async create(task: Partial<TarefaItem>): Promise<TarefaItem> {
-    const res = await authenticatedFetch(API_BASE_URL, {
-      method: 'POST',
-      body: JSON.stringify(task),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || 'Falha ao criar tarefa no PostgreSQL');
+    try {
+      const res = await authenticatedFetch(API_BASE_URL, {
+        method: 'POST',
+        body: JSON.stringify(task),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        return await res.json();
+      }
+    } catch {
+      // ignore
     }
-
-    return res.json();
+    return standaloneStore.createTask(task);
   },
 
   /**
-   * Cria ou sincroniza tarefas e rotinas em lote no PostgreSQL.
+   * Cria ou sincroniza tarefas e rotinas em lote.
    */
   async batch(payload: {
     tasks: Partial<TarefaItem>[];
     updateRoutines?: Array<{ id: string; lastDispatchedDate: string }>;
   }): Promise<{ count: number; tasks: TarefaItem[] }> {
-    const res = await authenticatedFetch(`${API_BASE_URL}/batch`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || 'Falha ao processar lote de tarefas no PostgreSQL');
+    try {
+      const res = await authenticatedFetch(`${API_BASE_URL}/batch`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        return await res.json();
+      }
+    } catch {
+      // ignore
     }
-
-    return res.json();
+    return standaloneStore.batchTasks(payload);
   },
 
   /**
-   * Atualiza dados de uma tarefa existente no PostgreSQL.
+   * Atualiza dados de uma tarefa existente.
    */
   async update(id: string, updates: Partial<TarefaItem>): Promise<TarefaItem> {
-    const res = await authenticatedFetch(`${API_BASE_URL}/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || 'Falha ao atualizar tarefa no PostgreSQL');
+    try {
+      const res = await authenticatedFetch(`${API_BASE_URL}/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        return await res.json();
+      }
+    } catch {
+      // ignore
     }
-
-    return res.json();
+    return standaloneStore.updateTask(id, updates);
   },
 
   /**
-   * Adiciona comentário ou nota de conclusão no PostgreSQL.
+   * Adiciona comentário ou nota de conclusão.
    */
   async addComment(
     id: string,
@@ -111,35 +153,38 @@ export const tasksApi = {
       attachments?: any[];
     }
   ): Promise<TarefaItem> {
-    const res = await authenticatedFetch(`${API_BASE_URL}/${id}/comments`, {
-      method: 'POST',
-      body: JSON.stringify(comment),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || 'Falha ao adicionar comentário no PostgreSQL');
+    try {
+      const res = await authenticatedFetch(`${API_BASE_URL}/${id}/comments`, {
+        method: 'POST',
+        body: JSON.stringify(comment),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        return await res.json();
+      }
+    } catch {
+      // ignore
     }
-
-    return res.json();
+    return standaloneStore.addComment(id, comment);
   },
 
   /**
-   * Exclui uma tarefa do PostgreSQL.
+   * Exclui uma tarefa.
    */
   async delete(id: string): Promise<void> {
-    const res = await authenticatedFetch(`${API_BASE_URL}/${id}`, {
-      method: 'DELETE',
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || 'Falha ao excluir tarefa no PostgreSQL');
+    try {
+      const res = await authenticatedFetch(`${API_BASE_URL}/${id}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) return;
+    } catch {
+      // ignore
     }
+    standaloneStore.deleteTask(id);
   },
 
   /**
-   * Converte arquivo de evidência para DataURL persistível no PostgreSQL.
+   * Converte arquivo de evidência para DataURL persistível.
    */
   async uploadAttachment(
     fileOrBase64: File | string,

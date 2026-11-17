@@ -12,6 +12,7 @@ import { tasksApi } from '../services/tasksApi';
 import { sweepRoutines, buildRoutineTasks } from '../domain/routineDispatch';
 import { dateKey } from '../domain/recurrence';
 import { useCopperOS } from './CopperOSContext';
+import { standaloneStore } from '../services/standaloneStore';
 
 const ROUTINE_SWEEP_INTERVAL_MS = 60_000;
 
@@ -57,9 +58,9 @@ const TasksContext = createContext<TasksContextType | undefined>(undefined);
 export const TasksProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { currentCompanyId } = useCopperOS();
 
-  // Sem mock ou cache localStorage: 100% carregado do PostgreSQL
-  const [tasks, setTasks] = useState<TarefaItem[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  // Inicializa imediatamente com tarefas locais (zero delay / sem tela em branco)
+  const [tasks, setTasks] = useState<TarefaItem[]>(() => standaloneStore.getTasks());
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [lastRoutineSweepAt, setLastRoutineSweepAt] = useState<Date | null>(null);

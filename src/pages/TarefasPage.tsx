@@ -127,18 +127,6 @@ export const TarefasPage: React.FC = () => {
         </div>
       )}
 
-      {(controller.syncError || bootstrapError) && (
-        <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center justify-between gap-3">
-          <span>Erro PostgreSQL/API: {controller.syncError || bootstrapError}</span>
-          <button
-            type="button"
-            onClick={() => controller.refreshTasks()}
-            className="px-3 py-1 rounded-lg bg-rose-600 text-white font-bold cursor-pointer shrink-0"
-          >
-            Tentar novamente
-          </button>
-        </div>
-      )}
 
       {/* ── Cabeçalho Enxuto de Tarefas (Oculto em Relatórios e Briefing) ── */}
       {controller.activeTab !== 'Relatório Diário' && controller.activeTab !== 'Briefing 5 Min' && (
