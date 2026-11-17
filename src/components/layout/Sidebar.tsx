@@ -320,7 +320,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                     setSearchParams({ tab: 'Configurações', section: 'ti-usuarios' });
                     onClose();
                   }}
-                  SW className={`w-full group flex items-center justify-between px-3 py-2 rounded-xl text-left transition-all duration-150 cursor-pointer ${isSettingsActive && searchParams.get('section') === 'ti-usuarios'
+                  className={`w-full group flex items-center justify-between px-3 py-2 rounded-xl text-left transition-all duration-150 cursor-pointer ${isSettingsActive && searchParams.get('section') === 'ti-usuarios'
                     ? 'bg-indigo-600 text-white font-semibold shadow-md shadow-indigo-600/25'
                     : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-night-850 hover:text-gray-900 dark:hover:text-white font-medium'
                     }`}
