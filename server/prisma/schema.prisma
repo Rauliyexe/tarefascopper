@@ -1,0 +1,271 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ── Tarefas e Rotinas Operacionais ───────────────────────────
+
+model Task {
+  id                 String   @id @default(uuid())
+  title              String
+  project            String   // Ex: "Operação Fundição", "Almoxarifado", "Fiscal", "Manutenção"
+  assignee           String   // Nome ou email do responsável
+  dueDate            String   @map("due_date") // YYYY-MM-DD
+  priority           String   @default("Média") // 'Urgente' | 'Alta' | 'Média' | 'Baixa'
+  status             String   @default("Pendente") // 'Pendente' | 'Em andamento' | 'Concluída'
+  companyId          String   @default("emp-copper-group") @map("company_id")
+  isDaily            Boolean  @default(false) @map("is_daily")
+  dailyTime          String?  @map("daily_time")
+  dailyWeekdaysOnly  Boolean  @default(false) @map("daily_weekdays_only")
+  assignedBy         String?  @map("assigned_by")
+  dailyActive        Boolean  @default(true) @map("daily_active")
+  routineDescription String?  @map("routine_description")
+  lastDispatchedDate String?  @map("last_dispatched_date")
+  routineTargetMode  String?  @map("routine_target_mode")
+  targetDepartmentId String?  @map("target_department_id")
+  departmentId       String?  @map("department_id")
+  assigneeId         String?  @map("assignee_id")
+  sourceRoutineId    String?  @map("source_routine_id")
+  checklists         String?  @default("[]") // Formato JSON String para SQLite
+  attachments        String?  @default("[]") // Formato JSON String para SQLite
+  comments           String?  @default("[]") // Formato JSON String para SQLite
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId])
+  @@index([status])
+  @@index([sourceRoutineId])
+  @@map("tasks")
+}
+
+// ── Trilha Imutável de Auditoria (RN-03 / RN-17 Traceability) ─
+
+model AuditLog {
+  id            String   @id @default(uuid())
+  schemaVersion String   @default("1.0.0") @map("schema_version")
+  occurredAt    DateTime @default(now()) @map("occurred_at")
+  recordedAt    DateTime @default(now()) @map("recorded_at")
+
+  // Multi-tenancy
+  companyId     String?  @default("emp-copper-group") @map("company_id")
+
+  // Ator / Responsável
+  userId        String?  @map("user_id")
+  userName      String   @default("Operador do Sistema") @map("user_name")
+  userEmail     String   @default("operador@coppergroup.com.br") @map("user_email")
+  userRole      String   @default("OPERATOR") @map("user_role")
+
+  // Ação & Recurso Auditado
+  action        String   // 'TASK_CREATE' | 'TASK_UPDATE' | 'TASK_STATUS_CHANGE' | 'TASK_DELETE' | 'CHECKLIST_TOGGLE' | 'COMMENT_ADD' | 'ROUTINE_SWEEP' | 'FECHAMENTO_EXPEDIENTE'
+  entity        String   // 'Task' | 'Routine' | 'Fechamento' | 'Auth'
+  entityId      String?  @map("entity_id")
+  module        String   @default("TAREFAS") @map("module")
+  description   String
+
+  // Instantâneo para rastreabilidade (Diffs)
+  oldValues     String?  @map("old_values") // JSON String
+  newValues     String?  @map("new_values") // JSON String
+  ipAddress     String?  @default("127.0.0.1") @map("ip_address")
+
+  @@index([companyId])
+  @@index([entity])
+  @@index([action])
+  @@index([occurredAt])
+  @@map("audit_logs")
+}
+
+// ── Fechamento de Expediente / Relatório Diário (RDO) ────────
+
+model ShiftReport {
+  id                  String   @id @default(uuid())
+  companyId           String   @default("emp-copper-group") @map("company_id")
+  departmentId        String?  @map("department_id")
+  departmentName      String?  @map("department_name")
+  dateKey             String   @map("date_key") // YYYY-MM-DD
+  turno               String   @default("ADMINISTRATIVO")
+  metodo              String   @default("TEXTO") // 'VOZ' | 'TEXTO' | 'HIBRIDO'
+  userId              String?  @map("user_id")
+  userName            String   @default("Colaborador") @map("user_name")
+  userEmail           String   @default("colaborador@coppergroup.com.br") @map("user_email")
+  userRole            String   @default("OPERATOR") @map("user_role")
+  pergunta1           String   @default("")
+  pergunta2           String   @default("")
+  pergunta3           String   @default("")
+  answersJson         String?  @default("[]") @map("answers_json") // Snapshot histórico [{questionId, questionTextSnapshot, order, required, answerText, inputMethod}]
+  tasksSnapshotJson   String?  @default("{}") @map("tasks_snapshot_json") // Contexto de tarefas vinculadas ao período
+  resumoAutomatico    String   @default("") @map("resumo_automatico")
+  aiIndividualSummary String?  @map("ai_individual_summary")
+  audioTranscrito     String?  @map("audio_transcrito")
+  metricas            String?  @default("{}") // JSON String
+  status              String   @default("SUBMITTED")
+  emailSentTo         String?  @map("email_sent_to")
+  ipAddress           String?  @default("127.0.0.1") @map("ip_address")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([companyId])
+  @@index([departmentId])
+  @@index([userId])
+  @@index([dateKey])
+  @@index([turno])
+  @@map("shift_reports")
+}
+
+// ── Diário de Bordo Operacional (Notas por Dia e Empresa) ────
+
+model DailyNote {
+  id        String   @id @default(uuid())
+  companyId String   @default("emp-copper-group") @map("company_id")
+  dateKey   String   @map("date_key") // YYYY-MM-DD
+  content   String   @default("")
+  updatedBy String?  @map("updated_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, dateKey])
+  @@map("daily_notes")
+}
+
+// ── Parque Metrológico & Balanças (Trava RN-16 INMETRO) ──────
+
+model Equipment {
+  id                        String   @id @default(uuid())
+  companyId                 String   @default("emp-copper-group") @map("company_id")
+  codigo                    String
+  nome                      String
+  tipo                      String   @default("BALANCA_RODOVIARIA")
+  capacidadeMaxKg           Float    @default(80000) @map("capacidade_max_kg")
+  precisaoKg                Float    @default(10) @map("precisao_kg")
+  localizacao               String
+  marcaModelo               String   @map("marca_modelo")
+  ultimaCalibracao          String   @map("ultima_calibracao") // YYYY-MM-DD
+  validadeCalibracao        String   @map("validade_calibracao") // YYYY-MM-DD
+  certificadoNumero         String   @default("RBC-2026") @map("certificado_numero")
+  orgaoCertificador         String   @default("Inmetro / RBC") @map("orgao_certificador")
+  status                    String   @default("CALIBRADO_ATIVO")
+  bloqueadoOperacionalmente Boolean  @default(false) @map("bloqueado_operacionalmente")
+  motivoBloqueio            String?  @map("motivo_bloqueio")
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId])
+  @@index([status])
+  @@map("equipments")
+}
+
+// ── Empresas & Filiais Multi-Tenant ──────────────────────────
+
+model CompanyRecord {
+  id             String   @id
+  monogram       String   @default("CG")
+  numericCode    String   @default("01") @map("numeric_code")
+  legalName      String   @map("legal_name")
+  tradeName      String   @map("trade_name")
+  sector         String
+  cnpj           String
+  status         String   @default("OPERATIONAL")
+  unitsCount     Int      @default(1) @map("units_count")
+  state          String   @default("SP")
+  city           String   @default("São Paulo")
+  enabledModules String   @default("[\"tarefas\",\"metrologia\"]") @map("enabled_modules") // JSON String
+  stats          String   @default("{}") // JSON String
+  branches       String   @default("[]") // JSON String
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("companies")
+}
+
+// ── Perfis de Colaboradores (RBAC) ───────────────────────────
+
+model UserProfile {
+  id                      String   @id
+  name                    String
+  email                   String
+  role                    String   @default("OPERATOR")
+  jobTitle                String?  @map("job_title")
+  department              String?
+  departmentId            String?  @map("department_id")
+  passwordHash            String?  @map("password_hash")
+  canAccessAllDepartments Boolean  @default(false) @map("can_access_all_departments")
+  organizationId          String   @default("org-copper-group") @map("organization_id")
+  companyAccess           String   @default("[\"*\"]") @map("company_access") // JSON String
+  permissions             String   @default("[]") // JSON String
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@index([departmentId])
+  @@index([email])
+  @@map("user_profiles")
+}
+
+// ── Departamentos Organizacionais ────────────────────────────
+
+model Department {
+  id            String   @id
+  companyId     String   @default("emp-copper-group") @map("company_id")
+  code          String
+  name          String
+  managerUserId String?  @map("manager_user_id")
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId])
+  @@map("departments")
+}
+
+// ── Questionários Dinâmicos por Departamento ─────────────────
+
+model DepartmentQuestion {
+  id              String   @id @default(uuid())
+  companyId       String   @default("emp-copper-group") @map("company_id")
+  departmentId    String   @map("department_id")
+  prompt          String
+  order           Int      @default(1)
+  required        Boolean  @default(true)
+  active          Boolean  @default(true)
+  createdByUserId String?  @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, departmentId, order])
+  @@map("department_questions")
+}
+
+// ── Consolidações e Sínteses (Departamental e Executiva) ─────
+
+model ReportConsolidation {
+  id                  String   @id @default(uuid())
+  companyId           String   @default("emp-copper-group") @map("company_id")
+  scope               String   @default("DEPARTMENT") // 'DEPARTMENT' | 'EXECUTIVE'
+  periodType          String   @default("DAILY") // 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'CUSTOM'
+  departmentId        String?  @map("department_id")
+  departmentName      String?  @map("department_name")
+  startDate           String   @map("start_date")
+  endDate             String   @map("end_date")
+  generatedByUserId   String?  @map("generated_by_user_id")
+  generatedByUserName String?  @map("generated_by_user_name")
+  summaryText         String   @map("summary_text")
+  highlightsJson      String?  @default("{}") @map("highlights_json")
+  sourceReportIdsJson String?  @default("[]") @map("source_report_ids_json")
+  emailSentTo         String?  @map("email_sent_to")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([companyId, scope, startDate, endDate])
+  @@index([departmentId])
+  @@map("report_consolidations")
+}
+
+// ── Configurações Globais e Travas Operacionais ──────────────
+
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedBy String?  @map("updated_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}

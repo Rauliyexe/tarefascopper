@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: coppertarefas
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: coppertarefas
+      POSTGRES_PASSWORD: coppertarefas_secret_2026
+      POSTGRES_DB: coppertarefas_db
+      TZ: America/Sao_Paulo
+    volumes:
+      - coppertarefas_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coppertarefas -d coppertarefas_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  coppertarefas_pgdata:
